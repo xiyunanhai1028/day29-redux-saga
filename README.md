@@ -25,9 +25,150 @@
 
 ### 4.基本使用
 
+```javascript
+├── components
+│   └── Counter.js
+├── index.js
+└── store
+    ├── action-types.js
+    ├── actions
+    │   └── counter.js
+    ├── index.js
+    ├── reducers
+    │   ├── counter.js
+    │   └── index.js
+    └── sagas
+        └── index.js
+```
+
 #### 4.1.项目依赖
 
 ```javascript
 npm install react-redux redux redux-sage -S
+```
+
+#### 4.2.`src/index.js`
+
+```javascript
+import React from 'react';
+import ReactDOM from 'react-dom';
+import { Provider } from 'react-redux';
+import store from './store';
+import Counter from './components/Counter'
+
+ReactDOM.render(<Provider store={store}>
+    <Counter />
+</Provider>, document.getElementById('root'));
+```
+
+#### 4.2.`components/Counter.js`
+
+```javascript
+import React from 'react';
+import { connect } from 'react-redux';
+import actions from '../store/actions/counter'
+
+class Counter extends React.Component {
+    render() {
+        return <div>
+            <p>{this.props.num}</p>
+            <button onClick={this.props.add}>add</button>
+            <button onClick={this.props.asyncAdd}>async add</button>
+        </div>
+    }
+}
+const mapStateToProps = state => state.counter;
+export default connect(mapStateToProps, actions)(Counter);
+```
+
+#### 4.3.`store/index.js`
+
+```javascript
+import { createStore, applyMiddleware } from 'redux';
+import createSagaMiddleware from 'redux-saga';
+import reducers from './reducers';
+import rootSage from './sagas';
+
+//引用saga中间件
+const sagaMiddleware = createSagaMiddleware();
+//应用saga中间件，一旦使用了这个中间件，那么之后的store.dispatch都会指向sagaMiddleware提供的dispatch方法
+const store = applyMiddleware(sagaMiddleware)(createStore)(reducers);
+//让根saga开始启动执行
+sagaMiddleware.run(rootSage);
+export default store;
+```
+
+#### 4.4.`store/action-types.js`
+
+```javascript
+const ADD='ADD';
+const ASYNC_ADD='ASYNC_ADD';
+export {
+    ADD,
+    ASYNC_ADD
+}
+```
+
+#### 4.5.`actions/counter.js`
+
+```javascript
+import * as types from '../action-types';
+
+const actions = {
+    add() {
+        return { type: types.ADD };
+    },
+    asyncAdd() {
+        return { type: types.ASYNC_ADD };
+    }
+}
+export default actions;
+```
+
+#### 4.6.`reducers/index.js`
+
+```javascript
+import { combineReducers } from 'redux';
+import counter from './counter';
+
+export default combineReducers({
+    counter
+})
+```
+
+#### 4.7.`reducers/counter.js`
+
+```javascript
+import * as types from '../action-types';
+
+const initialState = { num: 0 }
+function counter(state = initialState, action) {
+    switch (action.type) {
+        case types.ADD:
+            return { num: state.num + 1 };
+        default:
+            return state;
+    }
+}
+export default counter;
+```
+
+#### 4.8.`sagas/index.js`
+
+```javascript
+import { take, put } from 'redux-saga/effects';
+import * as types from '../action-types';
+
+function* rootSaga() {
+    for (let i = 0; i < 3; i++) {
+      	//等待有人向仓库派发一个ASYNC_ADD这样的命令，等到了就会继续执行，等不到就卡在这里
+      	//take只等待一次
+        yield take(types.ASYNC_ADD);
+      	//向仓库派发一个动作，让仓库调用store.dispatch({type:types.ADD})
+        yield put({ type: types.ADD });
+    }
+}
+
+export default rootSaga;
 ```
 
