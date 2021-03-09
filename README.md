@@ -386,3 +386,114 @@ export default runSaga;
 
 - 一个`take`就像是一个在后台运行的进程，在基于`redux-saga`的应用程序中，可以i同时运行多个`task`
 - 通过`fork`函数来创建`task`
+
+#### 7.1.`saga/index.js`
+
+```javascript
++ import { take, put, takeEvery } from '../../redux-saga/effects';
+  import * as types from '../action-types';
+
+function* add() {
+  //向仓库派发一个动作，让仓库调用store.dispatch({type:types.ADD})
+  yield put({ type: types.ADD });
+}
+
+function* rootSaga() {
++  yield takeEvery(types.ASYNC_ADD, add)
+}
+
+export default rootSaga;
+```
+
+#### 7.2.`redux-saga/effectTypes.js`
+
+```javascript
+/**监听特定的动作 */
+export const TAKE = 'TAKE';
+
+/**向仓库派发动作 */
+export const PUT = 'PUT';
+
+  /**开启一个新的子进程,一般不会阻塞当前saga */
++ export const FORK = 'FORK';
+```
+
+#### 7.3.`redux-saga/effects.js`
+
+```javascript
+import * as effecTypes from './effectTypes';
+
+
+export function take(actionType) {
+    return { type: effecTypes.TAKE, actionType };
+}
+
+export function put(action) {
+    return { type: effecTypes.PUT, action }
+}
+
+/**
+ * 以新的子进程的方式执行saga
+ * @param {*} saga 
+ * @returns 
+ */
++ export function fork(saga) {
++    return { type: effecTypes.FORK, saga };
++ }
+
+/**
+ * 等待每一次的actionType派发，然后一单独的子进程调用saga执行
+ * @param {*} actionType 
+ * @param {*} saga 
+ * @returns 
+ */
++ export function takeEvery(actionType, saga) {
++    function* takeEveryHelper() {
++       while (true) {//写一个死循环，每次都执行
++           yield take(actionType);//等待一个动作类型
++           yield fork(saga);//开启一个新的子进程执行saga
++       }
++   }
++   //开一个新的子进程执行 takeEveryHelper这个saga
++   return fork(takeEveryHelper);
++ }
+```
+
+#### 7.4.`redux-saga/runSaga.js`
+
+```javascript
+import * as effectTypes from './effectTypes';
+
+function runSaga(env, saga) {
+    const { getState, dispatch, channel } = env;
+    const it = typeof saga === 'function' ? saga() : saga;
+    function next(value) {
+        const { value: effect, done } = it.next(value);
+        if (!done) {
+            if (typeof effect[Symbol.iterator] === 'function') {
+                runSaga(env, effect);
+                next();
+            } else {
+                switch (effect.type) {
+                    case effectTypes.TAKE:
+                        channel.take(effect.actionType, next);
+                        break;
+                    case effectTypes.PUT:
+                        dispatch(effect.action);
+                        next();
+                        break;
++                   case effectTypes.FORK://开启一个新的子进程去执行saga
++                       runSaga(env, effect.saga);
++                       next();//不会阻塞当前saga
++                       break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+    next();
+}
+export default runSaga;
+```
+
