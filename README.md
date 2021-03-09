@@ -325,5 +325,64 @@ export default runSaga;
 
 ### 6.支持产出`iterator`
 
+#### 6.1.`saga/index.js`
 
+```javascript
+import { take, put } from '../../redux-saga/effects';
+import * as types from '../action-types';
 
++ function* add() {
++   //向仓库派发一个动作，让仓库调用store.dispatch({type:types.ADD})
++   yield put({ type: types.ADD });
++ }
+
+function* rootSaga() {
+  for (let i = 0; i < 3; i++) {
+    //等待有人向仓库派发一个ASYNC_ADD这样的命令，等到了就会继续执行，等不到就卡在这里
+    //take只等待一次
+    yield take(types.ASYNC_ADD);
++    yield add();
+  }
+}
+```
+
+#### 6.2.`redux-saga/runSaga.js`
+
+```javascript
+import * as effectTypes from './effectTypes';
+
+function runSaga(evn, saga) {
+    const { getState, dispatch, channel } = evn;
+    //saga可能是生成器，也可能是迭代器
++   const it = typeof saga === 'function' ? saga() : saga;
+    function next(value) {
+        const { value: effect, done } = it.next(value);
+        if (!done) {
+            //effect可能是一个迭代器 yield add();
++           if (typeof effect[Symbol.iterator] === 'function') {
++               runSaga(evn, effect);
++               next();//不会阻塞当前saga
++           } else {
+                switch (effect.type) {
+                    case effectTypes.TAKE:
+                        channel.take(effect.actionType, next);
+                        break;
+                    case effectTypes.PUT:
+                        dispatch(effect.action);
+                        next();
+                        break
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+    next();
+}
+export default runSaga;
+```
+
+### 7.支持takeEvery
+
+- 一个`take`就像是一个在后台运行的进程，在基于`redux-saga`的应用程序中，可以i同时运行多个`task`
+- 通过`fork`函数来创建`task`

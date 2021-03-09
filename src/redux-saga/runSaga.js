@@ -2,7 +2,7 @@
  * @Author: dfh
  * @Date: 2021-03-09 20:01:54
  * @LastEditors: dfh
- * @LastEditTime: 2021-03-09 22:20:50
+ * @LastEditTime: 2021-03-09 22:37:18
  * @Modified By: dfh
  * @FilePath: /day29-redux-saga/src/redux-saga/runSaga.js
  */
@@ -12,8 +12,8 @@ import * as effectTypes from './effectTypes';
  * @param {*} evn { getState, dispatch, channel }
  * @param {*} saga 可以传过来的是一个生成器，也可能是一个迭代器
  */
-function runSaga(evn, saga) {
-    const { getState, dispatch, channel } = evn;
+function runSaga(env, saga) {
+    const { getState, dispatch, channel } = env;
     //saga可能是生成器，也可能是迭代器
     const it = typeof saga === 'function' ? saga() : saga;
     function next(value) {
@@ -25,7 +25,7 @@ function runSaga(evn, saga) {
         if (!done) {
             //effect可能是一个迭代器 yield add();
             if (typeof effect[Symbol.iterator] === 'function') {
-                runSaga(evn, effect);
+                runSaga(env, effect);
                 next();//不会阻塞当前saga
             } else {
                 switch (effect.type) {
@@ -38,7 +38,11 @@ function runSaga(evn, saga) {
                         dispatch(effect.action);
                         //派发完成后，立即向下执行
                         next();
-                        break
+                        break;
+                    case effectTypes.FORK://开启一个新的子进程去执行saga
+                        runSaga(env, effect.saga);
+                        next();//不会阻塞当前saga
+                        break;
                     default:
                         break;
                 }
