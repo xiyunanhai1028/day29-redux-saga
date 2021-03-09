@@ -1,17 +1,17 @@
+/*
+ * @Author: dfh
+ * @Date: 2021-03-09 18:56:49
+ * @LastEditors: dfh
+ * @LastEditTime: 2021-03-09 19:33:33
+ * @Modified By: dfh
+ * @FilePath: /day29-redux-saga/src/index.js
+ */
 import React from 'react';
 import ReactDOM from 'react-dom';
-import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
+import { Provider } from 'react-redux';
+import store from './store';
+import Counter from './components/Counter'
 
-ReactDOM.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-  document.getElementById('root')
-);
-
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
-reportWebVitals();
+ReactDOM.render(<Provider store={store}>
+    <Counter />
+</Provider>, document.getElementById('root'));
