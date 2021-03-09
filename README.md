@@ -497,3 +497,68 @@ function runSaga(env, saga) {
 export default runSaga;
 ```
 
+### 8.支持`Promise`
+
+#### 8.1.`sagas/index.js`
+
+```javascript
+import { take, put, takeEvery } from '../../redux-saga/effects';
+import * as types from '../action-types';
+
++ const delay = ms => new Promise((resolve) => {
++  setTimeout(resolve, ms);
++ })
+
+function* add() {
++  yield delay(2000);
+  //向仓库派发一个动作，让仓库调用store.dispatch({type:types.ADD})
+  yield put({ type: types.ADD });
+}
+
+function* rootSaga() {
+  yield takeEvery(types.ASYNC_ADD, add)
+}
+
+export default rootSaga;
+```
+
+#### 8.2.`redux-saga/runSaga.js`
+
+```javascript
+import * as effectTypes from './effectTypes';
+
+function runSaga(env, saga) {
+    const { getState, dispatch, channel } = env;
+    const it = typeof saga === 'function' ? saga() : saga;
+    function next(value) {
+        const { value: effect, done } = it.next(value);
+        if (!done) {
+            if (typeof effect[Symbol.iterator] === 'function') {
+                runSaga(env, effect);
+                next();
++           } else if (typeof effect.then === 'function') {//支持promise
++               effect.then(next);//会阻塞，直到promise成功后会自动走next
++           } else {
+                switch (effect.type) {
+                    case effectTypes.TAKE:
+                        channel.take(effect.actionType, next);
+                        break;
+                    case effectTypes.PUT:
+                        dispatch(effect.action);
+                        next();
+                        break;
+                    case effectTypes.FORK:
+                        runSaga(env, effect.saga);
+                        next();
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+    next();
+}
+export default runSaga;
+```
+

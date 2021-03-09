@@ -2,7 +2,7 @@
  * @Author: dfh
  * @Date: 2021-03-09 20:01:54
  * @LastEditors: dfh
- * @LastEditTime: 2021-03-10 06:58:16
+ * @LastEditTime: 2021-03-10 07:15:42
  * @Modified By: dfh
  * @FilePath: /day29-redux-saga/src/redux-saga/runSaga.js
  */
@@ -44,6 +44,9 @@ function runSaga(env, saga) {
                     case effectTypes.FORK://开启一个新的子进程去执行saga
                         runSaga(env, effect.saga);
                         next();//不会阻塞当前saga
+                        break;
+                    case effectTypes.CALL:
+                        effect.fn(...effect.args).then(next)
                         break;
                     default:
                         break;
