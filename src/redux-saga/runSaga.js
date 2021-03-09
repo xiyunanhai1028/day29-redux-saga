@@ -2,7 +2,7 @@
  * @Author: dfh
  * @Date: 2021-03-09 20:01:54
  * @LastEditors: dfh
- * @LastEditTime: 2021-03-09 22:37:18
+ * @LastEditTime: 2021-03-10 06:58:16
  * @Modified By: dfh
  * @FilePath: /day29-redux-saga/src/redux-saga/runSaga.js
  */
@@ -27,6 +27,8 @@ function runSaga(env, saga) {
             if (typeof effect[Symbol.iterator] === 'function') {
                 runSaga(env, effect);
                 next();//不会阻塞当前saga
+            } else if (typeof effect.then === 'function') {//支持promise
+                effect.then(next);//会阻塞，直到promise成功后会自动走next
             } else {
                 switch (effect.type) {
                     case effectTypes.TAKE://等待有人向仓库派发ASYNC_ADD类型的动作
