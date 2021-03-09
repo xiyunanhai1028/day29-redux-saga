@@ -2,7 +2,7 @@
  * @Author: dfh
  * @Date: 2021-03-09 20:09:49
  * @LastEditors: dfh
- * @LastEditTime: 2021-03-10 07:14:17
+ * @LastEditTime: 2021-03-10 07:25:59
  * @Modified By: dfh
  * @FilePath: /day29-redux-saga/src/redux-saga/effects.js
  */
@@ -50,4 +50,8 @@ export function takeEvery(actionType, saga) {
 
 export function call(fn, ...args) {
     return { type: effecTypes.CALL, fn, args }
+}
+
+export function cps(fn, ...args) {
+    return { type: effecTypes.CPS, fn, args };
 }

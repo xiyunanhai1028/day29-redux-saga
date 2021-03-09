@@ -2,7 +2,7 @@
  * @Author: dfh
  * @Date: 2021-03-09 20:01:54
  * @LastEditors: dfh
- * @LastEditTime: 2021-03-10 07:15:42
+ * @LastEditTime: 2021-03-10 07:30:52
  * @Modified By: dfh
  * @FilePath: /day29-redux-saga/src/redux-saga/runSaga.js
  */
@@ -16,12 +16,14 @@ function runSaga(env, saga) {
     const { getState, dispatch, channel } = env;
     //saga可能是生成器，也可能是迭代器
     const it = typeof saga === 'function' ? saga() : saga;
-    function next(value) {
-        /**
-         * effect={ type: effecTypes.TAKE, actionType=types.ASYNC_ADD }
-         * effect= { type: effecTypes.PUT, action }
-         */
-        const { value: effect, done } = it.next(value);
+    function next(value, isError) {
+        let result;
+        if (isError) {
+            result = it.throw(value);//迭代器出错了
+        } else {
+            result = it.next(value);
+        }
+        const { value: effect, done } = result;
         if (!done) {
             //effect可能是一个迭代器 yield add();
             if (typeof effect[Symbol.iterator] === 'function') {
@@ -47,6 +49,15 @@ function runSaga(env, saga) {
                         break;
                     case effectTypes.CALL:
                         effect.fn(...effect.args).then(next)
+                        break;
+                    case effectTypes.CPS:
+                        effect.fn(...effect.args, (err, data) => {
+                            if (err) {//如果err不为null，说明错误了，next第一个参数是错误对象
+                                next(err, true);
+                            } else {
+                                next(data);
+                            }
+                        })
                         break;
                     default:
                         break;

@@ -562,3 +562,136 @@ function runSaga(env, saga) {
 export default runSaga;
 ```
 
+### 9.支持`all`
+
+#### 9.1.`sagas/index.js`
+
+```javascript
++ import { take, put, takeEvery, call } from '../../redux-saga/effects';
+import * as types from '../action-types';
+
+const delay = ms => new Promise((resolve) => {
+  setTimeout(resolve, ms);
+})
+
+function* add() {
++  yield call(delay, 1000);
+  yield put({ type: types.ADD });
+}
+
+function* rootSaga() {
+  yield takeEvery(types.ASYNC_ADD, add)
+}
+
+export default rootSaga;
+```
+
+#### 9.2.`redux-saga/effectTypes.js`
+
+```javascript
+/**监听特定的动作 */
+export const TAKE = 'TAKE';
+
+/**向仓库派发动作 */
+export const PUT = 'PUT';
+
+/**开启一个新的子进程,一般不会阻塞当前saga */
+export const FORK = 'FORK';
+
++ /**调用一个函数，默认此函数需要返回一个Promise */
++ export const CALL='CALL';
+```
+
+#### 9.3.`redux-saga/effects.js`
+
+```javascript
+import * as effecTypes from './effectTypes';
+
+/**
+ * 
+ * @param {*} actionType 
+ * @returns 返回值是一个普通对象，称之为指令对象
+ */
+export function take(actionType) {
+    return { type: effecTypes.TAKE, actionType };
+}
+
+export function put(action) {
+    return { type: effecTypes.PUT, action }
+}
+
+/**
+ * 以新的子进程的方式执行saga
+ * @param {*} saga 
+ * @returns 
+ */
+export function fork(saga) {
+    return { type: effecTypes.FORK, saga };
+}
+
+/**
+ * 等待每一次的actionType派发，然后一单独的子进程调用saga执行
+ * @param {*} actionType 
+ * @param {*} saga 
+ * @returns 
+ */
+export function takeEvery(actionType, saga) {
+    function* takeEveryHelper() {
+        while (true) {//写一个死循环，每次都执行
+            yield take(actionType);//等待一个动作类型
+            yield fork(saga);//开启一个新的子进程执行saga
+        }
+    }
+    //开一个新的子进程执行 takeEveryHelper这个saga
+    return fork(takeEveryHelper);
+}
+
+
++ export function call(fn, ...args) {
++    return { type: effecTypes.CALL, fn, args }
++ }
+```
+
+#### 9.4.`redux-saga/runSaga.js`
+
+```javascript
+import * as effectTypes from './effectTypes';
+
+function runSaga(env, saga) {
+    const { getState, dispatch, channel } = env;
+    const it = typeof saga === 'function' ? saga() : saga;
+    function next(value) {
+        const { value: effect, done } = it.next(value);
+        if (!done) {
+            if (typeof effect[Symbol.iterator] === 'function') {
+                runSaga(env, effect);
+                next();
+            } else if (typeof effect.then === 'function') {
+                effect.then(next);
+            } else {
+                switch (effect.type) {
+                    case effectTypes.TAKE:
+                        channel.take(effect.actionType, next);
+                        break;
+                    case effectTypes.PUT:
+                        dispatch(effect.action);
+                        next();
+                        break;
+                    case effectTypes.FORK:
+                        runSaga(env, effect.saga);
+                        next();
+                        break;
++                   case effectTypes.CALL:
++                       effect.fn(...effect.args).then(next)
++                       break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+    next();
+}
+export default runSaga;
+```
+
