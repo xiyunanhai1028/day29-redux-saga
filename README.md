@@ -172,3 +172,158 @@ function* rootSaga() {
 export default rootSaga;
 ```
 
+### 5.put&take实现
+
+```javascript
+redux-sage
+├── createChannel.js
+├── effectTypes.js
+├── effects.js
+├── index.js
+└── runSaga.js
+```
+
+#### 5.1.`index.js`
+
+```javascript
+import runSaga from './runSaga';
+import createChannel from "./createChannel";
+
+/**
+ * 
+ * @returns 返回的是一个中间件
+ */
+function createSagaMiddleware() {
+    const channel = createChannel();
+    let boundRunSaga;
+    function sagaMiddleware(middlewareApi) {//{getState,dispatch}
+        const { getState, dispatch } = middlewareApi;
+        //把this绑定为null，把runSaga的第一个参数绑定为env={ getState, dispatch, channel }
+        boundRunSaga = runSaga.bind(null, { getState, dispatch, channel })
+        return function (next) {//下一次中间件的dispatch方法
+            return function (action) {//动作
+                //原生的dispatch方法执行，直接把async_add给仓库，又给reducer，reducer不能识别，什么也不做
+                next(action);
+                //执行channel.put
+                channel.put(action)
+            }
+        }
+    }
+    sagaMiddleware.run = saga => boundRunSaga(saga);
+    return sagaMiddleware;
+}
+export default createSagaMiddleware;
+```
+
+#### 5.2.`createChannel.js`
+
+```javascript
+function createChannel() {
+    let currentTakers = [];//当前的监听者
+
+    /**
+     * 开始监听某个动作
+     * @param {*} actionType 动作类型 ASYNC_ADD
+     * @param {*} taker 是next
+     */
+    function take(actionType, taker) {
+        taker.actionType = actionType;
+        taker.cancel = () => {
+            currentTakers = currentTakers.filter(item => item !== taker);
+        }
+        currentTakers.push(taker);
+    }
+
+    /**
+     * 触发takers数组中的函数执行，但是要配置动作类型
+     * @param {*} action 动作对象 {type:types.ASYNC_ADD}
+     */
+    function put(action) {
+        currentTakers.forEach(taker => {
+            if (taker.actionType === action.type) {
+                //take默认执行一次，需要取消掉
+                taker.cancel();
+                taker(action);//next函数
+            }
+        })
+    }
+
+    return { take, put };
+}
+export default createChannel;
+```
+
+#### 5.3.`effectTypes.js`
+
+```javascript
+/**监听特定的动作 */
+export const TAKE = 'TAKE';
+
+/**向仓库派发动作 */
+export const PUT = 'PUT';
+```
+
+#### 5.4.`effects.js`
+
+```javascript
+import * as effecTypes from './effectTypes';
+
+/**
+ * 
+ * @param {*} actionType 
+ * @returns 返回值是一个普通对象，称之为指令对象
+ */
+export function take(actionType) {
+    return { type: effecTypes.TAKE, actionType };
+}
+
+export function put(action) {
+    return { type: effecTypes.PUT, action }
+}
+```
+
+#### 5.5.`runSaga.js`
+
+```javascript
+import * as effectTypes from './effectTypes';
+/**
+ * 执行或者说启动saga的方法
+ * @param {*} evn { getState, dispatch, channel }
+ * @param {*} saga 可以传过来的是一个生成器，也可能是一个迭代器
+ */
+function runSaga(evn, saga) {
+    const { getState, dispatch, channel } = evn;
+    //获取迭代器
+    const it = saga();
+    function next(value) {
+        /**
+         * effect={ type: effecTypes.TAKE, actionType=types.ASYNC_ADD }
+         * effect= { type: effecTypes.PUT, action }
+         */
+        const { value: effect, done } = it.next(value);
+        if (!done) {
+            switch (effect.type) {
+                case effectTypes.TAKE://等待有人向仓库派发ASYNC_ADD类型的动作
+                    //如果有人向仓库派发了ASYNC_ADD动作，就执行channel.put(action)
+                    //它会等待动作发生，如果等不到，就卡在这里
+                    channel.take(effect.actionType, next);
+                    break;
+                case effectTypes.PUT://put这个effect不会阻塞当前的saga执行，派发完成后，立即向下执行
+                    dispatch(effect.action);
+                    //派发完成后，立即向下执行
+                    next();
+                    break
+                default:
+                    break;
+            }
+        }
+    }
+    next();
+}
+export default runSaga;
+```
+
+### 6.支持产出`iterator`
+
+
+
