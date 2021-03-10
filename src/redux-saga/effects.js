@@ -2,7 +2,7 @@
  * @Author: dfh
  * @Date: 2021-03-09 20:09:49
  * @LastEditors: dfh
- * @LastEditTime: 2021-03-10 08:01:22
+ * @LastEditTime: 2021-03-10 08:39:51
  * @Modified By: dfh
  * @FilePath: /day29-redux-saga/src/redux-saga/effects.js
  */
@@ -59,3 +59,16 @@ export function cps(fn, ...args) {
 export function all(effects) {
     return { type: effecTypes.ALL, effects };
 }
+
+export function cancel(task) {
+    return { type: effecTypes.CANCEL, task };
+}
+
+function delayP(ms) {
+    const promise = new Promise(resolve => {
+        setTimeout(resolve, ms);
+    });
+    return promise;
+}
+
+export const delay = call.bind(null, delayP);

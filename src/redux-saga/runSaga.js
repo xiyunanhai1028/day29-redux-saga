@@ -2,17 +2,20 @@
  * @Author: dfh
  * @Date: 2021-03-09 20:01:54
  * @LastEditors: dfh
- * @LastEditTime: 2021-03-10 08:05:27
+ * @LastEditTime: 2021-03-10 08:49:39
  * @Modified By: dfh
  * @FilePath: /day29-redux-saga/src/redux-saga/runSaga.js
  */
 import * as effectTypes from './effectTypes';
+import { TASK_CANCEL } from './symbols';
 /**
  * 执行或者说启动saga的方法
  * @param {*} evn { getState, dispatch, channel }
  * @param {*} saga 可以传过来的是一个生成器，也可能是一个迭代器
  */
 function runSaga(env, saga, callbackDone) {
+    //每当执行runSaga时，给它创建一个任务对象
+    const task = { cancel: () => next(TASK_CANCEL) };
     const { getState, dispatch, channel } = env;
     //saga可能是生成器，也可能是迭代器
     const it = typeof saga === 'function' ? saga() : saga;
@@ -20,6 +23,8 @@ function runSaga(env, saga, callbackDone) {
         let result;
         if (isError) {
             result = it.throw(value);//迭代器出错了
+        } else if (value === TASK_CANCEL) {//如果next=TASK_CANCEL，说明我们取消了当前的任务
+            result = it.return(value);//it.return()用来结束当前saga
         } else {
             result = it.next(value);
         }
@@ -44,8 +49,8 @@ function runSaga(env, saga, callbackDone) {
                         next();
                         break;
                     case effectTypes.FORK://开启一个新的子进程去执行saga
-                        runSaga(env, effect.saga);
-                        next();//不会阻塞当前saga
+                        const forkTask = runSaga(env, effect.saga);//返回一个task
+                        next(forkTask);//不会阻塞当前saga
                         break;
                     case effectTypes.CALL:
                         effect.fn(...effect.args).then(next)
@@ -73,6 +78,10 @@ function runSaga(env, saga, callbackDone) {
                             })
                         })
                         break;
+                    case effectTypes.CANCEL:
+                        effect.task.cancel();//调用task的cancel方法->next(TASK_CANCEL)执行取消任务
+                        next();//当前saga继续执行，不会阻塞
+                        break;
                     default:
                         break;
                 }
@@ -82,5 +91,6 @@ function runSaga(env, saga, callbackDone) {
         }
     }
     next();
+    return task;
 }
 export default runSaga;

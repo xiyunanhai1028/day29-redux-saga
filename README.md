@@ -859,3 +859,192 @@ function runSaga(env, saga) {
 export default runSaga;
 ```
 
+### 11.支持`all`
+
+#### 11.1.`sagas/index.js`
+
+```javascript
++ import { take, put, takeEvery, call, cps, all } from '../../redux-saga/effects';
+import * as types from '../action-types';
+
++ function* add1() {
++  for (let i = 0; i < 3; i++) {
++    yield take(types.ASYNC_ADD);
++    yield put({ type: types.ADD })
++  }
++  return 'add1';
++ }
+
++ function* add2() {
++  for (let i = 0; i < 2; i++) {
++    yield take(types.ASYNC_ADD);
++    yield put({ type: types.ADD })
++  }
++  return 'add2';
++ }
+
+function* rootSaga() {
++  yield all([add1, add2]);
++  console.log(result)//=>['add1','add2']  
+}
+
+export default rootSaga;
+```
+
+#### 11.2.`redux-saga/effectTypes.js`
+
+```javascript
+/**监听特定的动作 */
+export const TAKE = 'TAKE';
+
+/**向仓库派发动作 */
+export const PUT = 'PUT';
+
+/**开启一个新的子进程,一般不会阻塞当前saga */
+export const FORK = 'FORK';
+
+/**调用一个函数，默认此函数需要返回一个Promise */
+export const CALL = 'CALL';
+
+/**调用一个函数，此函数的最后一个参数应该是一个callback，调用callback可以让saga继续向下执行 */
+export const CPS = 'CPS';
+
++ /**接收多个iterator，等多个iterator都结束，才会完成结束 */
++ export const ALL = 'ALL';
+```
+
+#### 11.3.`redux-saga/effects.js`
+
+```javascript
+import * as effecTypes from './effectTypes';
+
+/**
+ * 
+ * @param {*} actionType 
+ * @returns 返回值是一个普通对象，称之为指令对象
+ */
+export function take(actionType) {
+    return { type: effecTypes.TAKE, actionType };
+}
+
+export function put(action) {
+    return { type: effecTypes.PUT, action }
+}
+
+/**
+ * 以新的子进程的方式执行saga
+ * @param {*} saga 
+ * @returns 
+ */
+export function fork(saga) {
+    return { type: effecTypes.FORK, saga };
+}
+
+/**
+ * 等待每一次的actionType派发，然后一单独的子进程调用saga执行
+ * @param {*} actionType 
+ * @param {*} saga 
+ * @returns 
+ */
+export function takeEvery(actionType, saga) {
+    function* takeEveryHelper() {
+        while (true) {//写一个死循环，每次都执行
+            yield take(actionType);//等待一个动作类型
+            yield fork(saga);//开启一个新的子进程执行saga
+        }
+    }
+    //开一个新的子进程执行 takeEveryHelper这个saga
+    return fork(takeEveryHelper);
+}
+
+
+export function call(fn, ...args) {
+    return { type: effecTypes.CALL, fn, args }
+}
+
+export function cps(fn, ...args) {
+    return { type: effecTypes.CPS, fn, args };
+}
+
++ export function all(effects) {
++    return { type: effecTypes.ALL, effects };
++ }
+```
+
+#### 11.4.`redux-saga/runSaga.js`
+
+```javascript
+import * as effectTypes from './effectTypes';
+
++ function runSaga(env, saga, callbackDone) {
+    const { getState, dispatch, channel } = env;
+    //saga可能是生成器，也可能是迭代器
+    const it = typeof saga === 'function' ? saga() : saga;
+    function next(value, isError) {
+        let result;
+        if (isError) {
+            result = it.throw(value);//迭代器出错了
+        } else {
+            result = it.next(value);
+        }
+        const { value: effect, done } = result;
+        if (!done) {
+            //effect可能是一个迭代器 yield add();
+            if (typeof effect[Symbol.iterator] === 'function') {
+                runSaga(env, effect);
+                next();//不会阻塞当前saga
+            } else if (typeof effect.then === 'function') {//支持promise
+                effect.then(next);//会阻塞，直到promise成功后会自动走next
+            } else {
+                switch (effect.type) {
+                    case effectTypes.TAKE:
+                        channel.take(effect.actionType, next);
+                        break;
+                    case effectTypes.PUT:
+                        dispatch(effect.action);
+                        //派发完成后，立即向下执行
+                        next();
+                        break;
+                    case effectTypes.FORK://开启一个新的子进程去执行saga
+                        runSaga(env, effect.saga);
+                        next();//不会阻塞当前saga
+                        break;
+                    case effectTypes.CALL:
+                        effect.fn(...effect.args).then(next)
+                        break;
+                    case effectTypes.CPS:
+                        effect.fn(...effect.args, (err, data) => {
+                            if (err) {//如果err不为null，说明错误了，next第一个参数是错误对象
+                                next(err, true);
+                            } else {
+                                next(data);
+                            }
+                        })
+                        break;
++                   case effectTypes.ALL:
++                       let effects = effect.effects;
++                       const result = [];
++                       let completedCount = 0;
++                       effects.forEach((effect, index) => {
++                           runSaga(env, effect, (res) => {
++                               result[index] = res;
++                               //判断完成数量和总的数量是否相等
++                               if (++completedCount === effects.length) {
++                                   next(result);//相等，相当于全部结束了，可以让当前saga继续执行
++                               }
++                           })
++                       })
++                       break;
+                    default:
+                        break;
+                }
+            }
++       } else {
++           callbackDone && callbackDone(effect);
++       }
+    }
+    next();
+}
+export default runSaga;
+```
+

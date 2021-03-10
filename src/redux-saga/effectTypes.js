@@ -2,7 +2,7 @@
  * @Author: dfh
  * @Date: 2021-03-09 20:10:04
  * @LastEditors: dfh
- * @LastEditTime: 2021-03-10 08:00:50
+ * @LastEditTime: 2021-03-10 08:37:50
  * @Modified By: dfh
  * @FilePath: /day29-redux-saga/src/redux-saga/effectTypes.js
  */
@@ -24,3 +24,6 @@ export const CPS = 'CPS';
 
 /**接收多个iterator，等多个iterator都结束，才会完成结束 */
 export const ALL = 'ALL';
+
+/**取消一个任务 */
+export const CANCEL='CANCEL';
