@@ -1048,3 +1048,271 @@ import * as effectTypes from './effectTypes';
 export default runSaga;
 ```
 
+### 12.支持`cancel`
+
+![cancel](https://tva1.sinaimg.cn/large/008eGmZEly1goeiwt63tzg30ko0coadt.gif)
+
+#### 12.1.`components/Counter.js`
+
+```javascript
+import React from 'react';
+import { connect } from 'react-redux';
+import actions from '../store/actions/counter'
+
+class Counter extends React.Component {
+    render() {
+        return <div>
+            <p>{this.props.num}</p>
+            <button onClick={this.props.add}>add</button>
+            <button onClick={this.props.asyncAdd}>async add</button>
++           <button onClick={this.props.stop}>stop</button>
+        </div>
+    }
+}
+const mapStateToProps = state => state.counter;
+export default connect(mapStateToProps, actions)(Counter);
+```
+
+#### 12.2.`store/action-types.js`
+
+```javascript
+	const ADD='ADD';
+	const ASYNC_ADD='ASYNC_ADD';
++ const STOP_ADD='STOP_ADD';
+export {
+    ADD,
+    ASYNC_ADD,
++   STOP_ADD
+}
+```
+
+#### 12.3.`actions/counter.js`
+
+```javascript
+import * as types from '../action-types';
+
+const actions = {
+    add() {
+        return { type: types.ADD };
+    },
+    asyncAdd() {
+        return { type: types.ASYNC_ADD };
+    },
++   stop() {
++       return { type: types.STOP_ADD };
++   }
+}
+export default actions;
+```
+
+
+
+#### 12.4.`sagas/index.js`
+
+```javascript
++ import { take, put, takeEvery, call, cps, all, delay, fork, cancel } from '../../redux-saga/effects';
+  import * as types from '../action-types';
+
++ function* add() {
++  while (true) {
++    yield delay(1000);
++    yield put({ type: types.ADD });
++  }
++ }
+
+function* rootSaga() {
++  const task = yield fork(add);
++  yield take(types.STOP_ADD);
++  yield cancel(task);
+}
+
+export default rootSaga;
+```
+
+#### 12.5.`redux-saga/effectTypes.js`
+
+```javascript
+/**监听特定的动作 */
+export const TAKE = 'TAKE';
+
+/**向仓库派发动作 */
+export const PUT = 'PUT';
+
+/**开启一个新的子进程,一般不会阻塞当前saga */
+export const FORK = 'FORK';
+
+/**调用一个函数，默认此函数需要返回一个Promise */
+export const CALL = 'CALL';
+
+/**调用一个函数，此函数的最后一个参数应该是一个callback，调用callback可以让saga继续向下执行 */
+export const CPS = 'CPS';
+
+/**接收多个iterator，等多个iterator都结束，才会完成结束 */
+export const ALL = 'ALL';
+
++ /**取消一个任务 */
++ export const CANCEL='CANCEL';
+```
+
+#### 12.6.`redux-saga/`
+
+```javascript
+import * as effecTypes from './effectTypes';
+
+/**
+ * 
+ * @param {*} actionType 
+ * @returns 返回值是一个普通对象，称之为指令对象
+ */
+export function take(actionType) {
+    return { type: effecTypes.TAKE, actionType };
+}
+
+export function put(action) {
+    return { type: effecTypes.PUT, action }
+}
+
+/**
+ * 以新的子进程的方式执行saga
+ * @param {*} saga 
+ * @returns 
+ */
+export function fork(saga) {
+    return { type: effecTypes.FORK, saga };
+}
+
+/**
+ * 等待每一次的actionType派发，然后一单独的子进程调用saga执行
+ * @param {*} actionType 
+ * @param {*} saga 
+ * @returns 
+ */
+export function takeEvery(actionType, saga) {
+    function* takeEveryHelper() {
+        while (true) {//写一个死循环，每次都执行
+            yield take(actionType);//等待一个动作类型
+            yield fork(saga);//开启一个新的子进程执行saga
+        }
+    }
+    //开一个新的子进程执行 takeEveryHelper这个saga
+    return fork(takeEveryHelper);
+}
+
+
+export function call(fn, ...args) {
+    return { type: effecTypes.CALL, fn, args }
+}
+
+export function cps(fn, ...args) {
+    return { type: effecTypes.CPS, fn, args };
+}
+
+export function all(effects) {
+    return { type: effecTypes.ALL, effects };
+}
+
++ export function cancel(task) {
++    return { type: effecTypes.CANCEL, task };
++ }
+
++ function delayP(ms) {
++    const promise = new Promise(resolve => {
++        setTimeout(resolve, ms);
++    });
++    return promise;
++ }
+
++ export const delay = call.bind(null, delayP);
+```
+
+#### 12.7.`redux-saga/symbols.js`
+
+```javascript
+export const TASK_CANCEL=Symbol('TASK_CANCEL');
+```
+
+#### 12.8.`redux-saga/runSaga.js`
+
+```javascript
+import * as effectTypes from './effectTypes';
++ import { TASK_CANCEL } from './symbols';
+
+function runSaga(env, saga, callbackDone) {
+    //每当执行runSaga时，给它创建一个任务对象
++   const task = { cancel: () => next(TASK_CANCEL) };
+    const { getState, dispatch, channel } = env;
+    const it = typeof saga === 'function' ? saga() : saga;
+    function next(value, isError) {
+        let result;
+        if (isError) {
+            result = it.throw(value);
++       } else if (value === TASK_CANCEL) {//如果next=TASK_CANCEL，说明我们取消了当前的任务
++           result = it.return(value);//it.return()用来结束当前saga
++       } else {
+            result = it.next(value);
+        }
+        const { value: effect, done } = result;
+        if (!done) {
+            if (typeof effect[Symbol.iterator] === 'function') {
+                runSaga(env, effect);
+                next();
+            } else if (typeof effect.then === 'function') {
+                effect.then(next);
+            } else {
+                switch (effect.type) {
+                    case effectTypes.TAKE:
+                        channel.take(effect.actionType, next);
+                        break;
+                    case effectTypes.PUT:
+                        dispatch(effect.action);
+                        //派发完成后，立即向下执行
+                        next();
+                        break;
+                    case effectTypes.FORK://开启一个新的子进程去执行saga
++                       const forkTask = runSaga(env, effect.saga);//返回一个task
++                       next(forkTask);//不会阻塞当前saga
+                        break;
+                    case effectTypes.CALL:
+                        effect.fn(...effect.args).then(next)
+                        break;
+                    case effectTypes.CPS:
+                        effect.fn(...effect.args, (err, data) => {
+                            if (err) {//如果err不为null，说明错误了，next第一个参数是错误对象
+                                next(err, true);
+                            } else {
+                                next(data);
+                            }
+                        })
+                        break;
+                    case effectTypes.ALL:
+                        let effects = effect.effects;
+                        const result = [];
+                        let completedCount = 0;
+                        effects.forEach((effect, index) => {
+                            runSaga(env, effect, (res) => {
+                                result[index] = res;
+                                //判断完成数量和总的数量是否相等
+                                if (++completedCount === effects.length) {
+                                    next(result);//相等，相当于全部结束了，可以让当前saga继续执行
+                                }
+                            })
+                        })
+                        break;
++                   case effectTypes.CANCEL:
++                       effect.task.cancel();//调用task的cancel方法->next(TASK_CANCEL)执行取消任务
++                       next();//当前saga继续执行，不会阻塞
++                       break;
+                    default:
+                        break;
+                }
+            }
+        } else {
+            callbackDone && callbackDone(effect);
+        }
+    }
+    next();
++   return task;
+}
+export default runSaga;
+```
+
