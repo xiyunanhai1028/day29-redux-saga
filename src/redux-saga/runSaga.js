@@ -2,7 +2,7 @@
  * @Author: dfh
  * @Date: 2021-03-09 20:01:54
  * @LastEditors: dfh
- * @LastEditTime: 2021-03-10 07:30:52
+ * @LastEditTime: 2021-03-10 08:05:27
  * @Modified By: dfh
  * @FilePath: /day29-redux-saga/src/redux-saga/runSaga.js
  */
@@ -12,7 +12,7 @@ import * as effectTypes from './effectTypes';
  * @param {*} evn { getState, dispatch, channel }
  * @param {*} saga 可以传过来的是一个生成器，也可能是一个迭代器
  */
-function runSaga(env, saga) {
+function runSaga(env, saga, callbackDone) {
     const { getState, dispatch, channel } = env;
     //saga可能是生成器，也可能是迭代器
     const it = typeof saga === 'function' ? saga() : saga;
@@ -59,10 +59,26 @@ function runSaga(env, saga) {
                             }
                         })
                         break;
+                    case effectTypes.ALL:
+                        let effects = effect.effects;
+                        const result = [];
+                        let completedCount = 0;
+                        effects.forEach((effect, index) => {
+                            runSaga(env, effect, (res) => {
+                                result[index] = res;
+                                //判断完成数量和总的数量是否相等
+                                if (++completedCount === effects.length) {
+                                    next(result);//相等，相当于全部结束了，可以让当前saga继续执行
+                                }
+                            })
+                        })
+                        break;
                     default:
                         break;
                 }
             }
+        } else {
+            callbackDone && callbackDone(effect);
         }
     }
     next();

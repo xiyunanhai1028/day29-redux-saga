@@ -2,7 +2,7 @@
  * @Author: dfh
  * @Date: 2021-03-09 20:09:49
  * @LastEditors: dfh
- * @LastEditTime: 2021-03-10 07:25:59
+ * @LastEditTime: 2021-03-10 08:01:22
  * @Modified By: dfh
  * @FilePath: /day29-redux-saga/src/redux-saga/effects.js
  */
@@ -54,4 +54,8 @@ export function call(fn, ...args) {
 
 export function cps(fn, ...args) {
     return { type: effecTypes.CPS, fn, args };
+}
+
+export function all(effects) {
+    return { type: effecTypes.ALL, effects };
 }

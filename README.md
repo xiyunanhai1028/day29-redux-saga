@@ -695,3 +695,167 @@ function runSaga(env, saga) {
 export default runSaga;
 ```
 
+### 10.支持`cps`
+
+#### 10.1.`sagas/index.js`
+
+```javascript
+import { take, put, takeEvery, call, cps } from '../../redux-saga/effects';
+import * as types from '../action-types';
+
++ const delay2 = (ms, callback) => {
++  setTimeout(() => {
+    //第一个参数是错误结果
++    callback(null,'ok')
++ }, ms);
++ }
+
+function* add() {
+  //告诉saga中间件执行delay2反复，参数是1000
++  yield cps(delay2, 1000);
+  
+  yield put({ type: types.ADD });
+}
+
+function* rootSaga() {
+  yield takeEvery(types.ASYNC_ADD, add)
+}
+
+export default rootSaga;
+```
+
+#### 10.2.`redux-saga/effectTypes.js`
+
+```javascript
+/**监听特定的动作 */
+export const TAKE = 'TAKE';
+
+/**向仓库派发动作 */
+export const PUT = 'PUT';
+
+/**开启一个新的子进程,一般不会阻塞当前saga */
+export const FORK = 'FORK';
+
+/**调用一个函数，默认此函数需要返回一个Promise */
+export const CALL = 'CALL';
+
+	/**调用一个函数，此函数的最后一个参数应该是一个callback，调用callback可以让saga继续向下执行 */
++ export const CPS = 'CPS';
+```
+
+#### 10.3.`redux-saga/effects.js`
+
+```javascript
+import * as effecTypes from './effectTypes';
+
+/**
+ * 
+ * @param {*} actionType 
+ * @returns 返回值是一个普通对象，称之为指令对象
+ */
+export function take(actionType) {
+    return { type: effecTypes.TAKE, actionType };
+}
+
+export function put(action) {
+    return { type: effecTypes.PUT, action }
+}
+
+/**
+ * 以新的子进程的方式执行saga
+ * @param {*} saga 
+ * @returns 
+ */
+export function fork(saga) {
+    return { type: effecTypes.FORK, saga };
+}
+
+/**
+ * 等待每一次的actionType派发，然后一单独的子进程调用saga执行
+ * @param {*} actionType 
+ * @param {*} saga 
+ * @returns 
+ */
+export function takeEvery(actionType, saga) {
+    function* takeEveryHelper() {
+        while (true) {//写一个死循环，每次都执行
+            yield take(actionType);//等待一个动作类型
+            yield fork(saga);//开启一个新的子进程执行saga
+        }
+    }
+    //开一个新的子进程执行 takeEveryHelper这个saga
+    return fork(takeEveryHelper);
+}
+
+
+export function call(fn, ...args) {
+    return { type: effecTypes.CALL, fn, args }
+}
+
++ export function cps(fn, ...args) {
++   return { type: effecTypes.CPS, fn, args };
++ }
+```
+
+#### 10.4.`redux-saga/runSaga.js`
+
+```javascript
+import * as effectTypes from './effectTypes';
+
+function runSaga(env, saga) {
+    const { getState, dispatch, channel } = env;
+    const it = typeof saga === 'function' ? saga() : saga;
+    function next(value, isError) {
++       let result;
++       if (isError) {
++           result = it.throw(value);//迭代器出错了
++       } else {
++           result = it.next(value);
++       }
++       const { value: effect, done } = result;
+        if (!done) {
+            //effect可能是一个迭代器 yield add();
+            if (typeof effect[Symbol.iterator] === 'function') {
+                runSaga(env, effect);
+                next();//不会阻塞当前saga
+            } else if (typeof effect.then === 'function') {//支持promise
+                effect.then(next);//会阻塞，直到promise成功后会自动走next
+            } else {
+                switch (effect.type) {
+                    case effectTypes.TAKE://等待有人向仓库派发ASYNC_ADD类型的动作
+                        //如果有人向仓库派发了ASYNC_ADD动作，就执行channel.put(action)
+                        //它会等待动作发生，如果等不到，就卡在这里
+                        channel.take(effect.actionType, next);
+                        break;
+                    case effectTypes.PUT://put这个effect不会阻塞当前的saga执行，派发完成后，立即向下执行
+                        dispatch(effect.action);
+                        //派发完成后，立即向下执行
+                        next();
+                        break;
+                    case effectTypes.FORK://开启一个新的子进程去执行saga
+                        runSaga(env, effect.saga);
+                        next();//不会阻塞当前saga
+                        break;
+                    case effectTypes.CALL:
+                        effect.fn(...effect.args).then(next)
+                        break;
++                   case effectTypes.CPS:
++                       effect.fn(...effect.args, (err, data) => {
++                           if (err) {//如果err不为null，说明错误了，next第一个参数是错误对象
++                               next(err, true);
++                           } else {
++                               next(data);
++                           }
++                       })
++                       break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+    next();
+}
+export default runSaga;
+```
+
